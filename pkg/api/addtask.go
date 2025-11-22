@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"os"
 	"time"
 
+	"github.com/vita269/final-boss/pkg/dates"
 	"github.com/vita269/final-boss/pkg/db"
 )
+
+const dateFormat = "20060102"
 
 type TasksResp struct {
 	Tasks []*db.Task `json:"tasks"`
@@ -26,7 +28,10 @@ func writeJson(w http.ResponseWriter, data any, status int) {
 	}
 }
 func addTaskHandler(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
+	if r.Method != http.MethodPost {
+		writeJson(w, map[string]string{"error": "Метод " + r.Method + " не поддерживается. Используйте POST"}, http.StatusMethodNotAllowed)
+		return
+	}
 
 	var task db.Task
 
@@ -100,7 +105,10 @@ func getTaskHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func updateTaskHandler(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
+	if r.Method != http.MethodPut {
+		writeJson(w, map[string]string{"error": "Метод " + r.Method + " не поддерживается. Используйте PUT"}, http.StatusMethodNotAllowed)
+		return
+	}
 
 	var task db.Task
 
@@ -124,7 +132,7 @@ func updateTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Обработка "today"
 	if task.Date == "today" {
-		task.Date = time.Now().Format("20060102")
+		task.Date = time.Now().Format(dateFormat)
 	}
 
 	// Проверяем дату
@@ -145,6 +153,11 @@ func updateTaskHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func deleteTaskHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		writeJson(w, map[string]string{"error": "Метод " + r.Method + " не поддерживается. Используйте DELETE"}, http.StatusMethodNotAllowed)
+		return
+	}
+
 	id := r.URL.Query().Get("id")
 	if id == "" {
 		writeJson(w, map[string]string{"error": "Не указан идентификатор"}, http.StatusBadRequest)
@@ -185,18 +198,14 @@ func doneTaskHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Одноразовая задача %s выполнена и удалена", id)
 	} else {
 
-		tempTask := &db.Task{
-			Date:   task.Date,
-			Repeat: task.Repeat,
-		}
 		// Если задача повторяется - вычисляем следующую дату
-		nextDate, err := db.CalculateNextDate(tempTask, time.Now())
+		nextDate, err := dates.CalculateNextDateForTask(time.Now(), task.Date, task.Repeat)
 		if err != nil {
 			writeJson(w, map[string]string{"error": "Ошибка при расчете следующей даты: " + err.Error()}, http.StatusInternalServerError)
 			return
 		}
 
-		nextDateStr := nextDate.Format("20060102")
+		nextDateStr := nextDate.Format(dateFormat)
 		log.Printf("Следующая дата: %s -> %s", task.Date, nextDateStr)
 		// Обновляем дату задачи
 		err = db.UpdateDate(id, nextDateStr)
@@ -227,22 +236,59 @@ func signinHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	expectedPassword := os.Getenv("TODO_PASSWORD")
-	if expectedPassword == "" {
+	var todoPassword string
+	if todoPassword == "" {
 		writeJson(w, map[string]string{"error": "authentication not configured"}, http.StatusInternalServerError)
 		return
 	}
 
-	if req.Password != expectedPassword {
+	if req.Password != todoPassword {
 		writeJson(w, map[string]string{"error": "invalid password"}, http.StatusUnauthorized)
 		return
 	}
 
-	token, err := generateToken(req.Password)
+	token, err := GenerateToken(req.Password)
 	if err != nil {
 		writeJson(w, map[string]string{"error": "failed to generate token"}, http.StatusInternalServerError)
 		return
 	}
 
 	writeJson(w, map[string]string{"token": token}, http.StatusOK)
+}
+
+func nextDateHandler(w http.ResponseWriter, r *http.Request) {
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+		return
+	}
+
+	nowStr := r.FormValue("now")
+	dateStr := r.FormValue("date")
+	repeat := r.FormValue("repeat")
+
+	var now time.Time
+	if nowStr == "" {
+		now = time.Now()
+	} else {
+		var err error
+		now, err = time.Parse(dateFormat, nowStr)
+		if err != nil {
+			http.Error(w, "некорректный формат параметра now", http.StatusBadRequest)
+			return
+		}
+	}
+
+	if dateStr == "" || repeat == "" {
+		http.Error(w, "обязательные параметры date и repeat не указаны", http.StatusBadRequest)
+		return
+	}
+
+	result, err := dates.NextDate(now, dateStr, repeat)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Write([]byte(result))
 }

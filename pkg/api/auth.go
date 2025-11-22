@@ -9,7 +9,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var jwtSecret []byte
+var (
+	jwtSecret    []byte
+	todoPassword string
+)
 
 func init() {
 	// Берем секрет из переменной окружения или используем дефолтный
@@ -18,6 +21,7 @@ func init() {
 		secret = "todo-secret-key-2024" // для разработки
 	}
 	jwtSecret = []byte(secret)
+	todoPassword = os.Getenv("TODO_PASSWORD")
 }
 
 type Claims struct {
@@ -25,7 +29,7 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-func generateToken(password string) (string, error) {
+func GenerateToken(password string) (string, error) {
 	// Создаем простой хеш пароля для payload
 	passwordHash := fmt.Sprintf("%x", len(password)) // простой хеш для примера
 
@@ -67,8 +71,8 @@ func validateToken(tokenString string) (bool, error) {
 func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Проверяем требуется ли аутентификация
-		password := os.Getenv("TODO_PASSWORD")
-		if password == "" {
+
+		if todoPassword == "" {
 			// Аутентификация не требуется
 			next(w, r)
 			return

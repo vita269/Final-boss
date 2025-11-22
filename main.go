@@ -29,8 +29,6 @@ func main() {
 		log.Fatalf("Ошибка при инициализации базы данных: %v", err)
 	}
 
-	db.InitDB(db.GetDB())
-
 	defer func() {
 		if err := db.Close(); err != nil {
 			log.Printf("Ошибка при закрытии БД: %v", err)
